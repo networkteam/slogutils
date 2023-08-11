@@ -10,7 +10,7 @@ go get github.com/networkteam/slogutils
 
 ### CLI handler
 
-<img src="https://user-images.githubusercontent.com/33351/259963968-0c5ece6f-457f-4189-9499-b831c01a4144.png">
+<img src="https://user-images.githubusercontent.com/33351/259967209-8c9583f6-e7c5-4c16-854a-01f45f006be8.png">
 <br>
 
 * Unobstrusive minimal logging output for humans (no timestamps, no log levels)
