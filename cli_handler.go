@@ -17,6 +17,7 @@ import (
 )
 
 var cliDefaultLevelColors = map[slog.Level]*color.Color{
+	LevelTrace:      color.New(color.Faint),
 	slog.LevelDebug: color.New(color.FgWhite, color.Faint),
 	slog.LevelInfo:  color.New(color.FgBlue),
 	slog.LevelWarn:  color.New(color.FgYellow),
@@ -26,6 +27,7 @@ var cliDefaultLevelColors = map[slog.Level]*color.Color{
 const cliDefaultPrefixPadding = 2
 
 var cliDefaultLevelPrefixes = map[slog.Level]string{
+	LevelTrace:      "-",
 	slog.LevelDebug: "◦",
 	slog.LevelInfo:  "•",
 	slog.LevelWarn:  "▲",
