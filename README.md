@@ -98,6 +98,10 @@ func withRequestID(next http.Handler) http.Handler {
 ```
 </details>
 
+### PGX tracelog adapter for `slog`
+
+See `adapter/pgx/v5/tracelog`. 
+
 ## Acknowledgements
 
 * The output of the CLI handler is based on the CLI handler of the [github.com/apex/log](https://github.com/apex/log/tree/master/handlers/cli) package.
