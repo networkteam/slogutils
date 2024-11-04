@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"testing"
 
 	"github.com/jackc/pgx/v5/tracelog"
@@ -19,7 +20,7 @@ func TestLogger_Log(t *testing.T) {
 	type args struct {
 		level tracelog.LogLevel
 		msg   string
-		data  map[string]interface{}
+		data  map[string]any
 	}
 	tests := []struct {
 		name        string
@@ -33,7 +34,7 @@ func TestLogger_Log(t *testing.T) {
 			args: args{
 				level: tracelog.LogLevelTrace,
 				msg:   "Hey, it's a test",
-				data: map[string]interface{}{
+				data: map[string]any{
 					"foo": "bar",
 				},
 			},
@@ -50,7 +51,7 @@ func TestLogger_Log(t *testing.T) {
 			args: args{
 				level: tracelog.LogLevelDebug,
 				msg:   "Hey, it's a test",
-				data: map[string]interface{}{
+				data: map[string]any{
 					"foo": "bar",
 				},
 			},
@@ -67,7 +68,7 @@ func TestLogger_Log(t *testing.T) {
 			args: args{
 				level: tracelog.LogLevelInfo,
 				msg:   "Hey, it's a test",
-				data: map[string]interface{}{
+				data: map[string]any{
 					"foo": "bar",
 				},
 			},
@@ -84,7 +85,7 @@ func TestLogger_Log(t *testing.T) {
 			args: args{
 				level: tracelog.LogLevelWarn,
 				msg:   "Hey, it's a test",
-				data: map[string]interface{}{
+				data: map[string]any{
 					"foo": "bar",
 				},
 			},
@@ -101,9 +102,9 @@ func TestLogger_Log(t *testing.T) {
 			args: args{
 				level: tracelog.LogLevelError,
 				msg:   "Hey, there was an error",
-				data: map[string]interface{}{
-					"err": testErr,
+				data: map[string]any{
 					"sql": "SELECT * FROM users",
+					"err": testErr,
 				},
 			},
 			expected: &observer.LoggedRecord{
@@ -112,8 +113,8 @@ func TestLogger_Log(t *testing.T) {
 					Message: "Hey, there was an error",
 				},
 				Attrs: []slog.Attr{
-					slog.String("sql", "SELECT * FROM users"),
 					slog.Any("err", testErr),
+					slog.String("sql", "SELECT * FROM users"),
 				},
 			},
 		},
@@ -127,12 +128,39 @@ func TestLogger_Log(t *testing.T) {
 			args: args{
 				level: tracelog.LogLevelError,
 				msg:   "Hey, there was an error",
-				data: map[string]interface{}{
+				data: map[string]any{
 					"err": fmt.Errorf("ignored error"),
 					"sql": "SELECT * FROM users",
 				},
 			},
 			expected: nil,
+		},
+		{
+			name: "log attributes are ordered",
+			args: args{
+				level: tracelog.LogLevelInfo,
+				msg:   "Hey, it's a test",
+				data: map[string]any{
+					"sql":        "SELECT * FROM users",
+					"args":       []int{1, 2, 3},
+					"pid":        123,
+					"commandTag": "SELECT 0 1",
+					"err":        testErr,
+				},
+			},
+			expected: &observer.LoggedRecord{
+				Record: slog.Record{
+					Level:   slog.LevelInfo,
+					Message: "Hey, it's a test",
+				},
+				Attrs: []slog.Attr{
+					slog.Any("err", testErr),
+					slog.String("sql", "SELECT * FROM users"),
+					slog.Any("args", []int{1, 2, 3}),
+					slog.String("commandTag", "SELECT 0 1"),
+					slog.Int("pid", 123),
+				},
+			},
 		},
 		{
 			name: "logger can be customized",
@@ -142,7 +170,7 @@ func TestLogger_Log(t *testing.T) {
 			args: args{
 				level: tracelog.LogLevelInfo,
 				msg:   "Hey, it's a test",
-				data: map[string]interface{}{
+				data: map[string]any{
 					"foo": "bar",
 				},
 			},
@@ -152,6 +180,26 @@ func TestLogger_Log(t *testing.T) {
 					Message: "Hey, it's a test",
 				},
 				Attrs: []slog.Attr{slog.String("foo", "bar"), slog.String("component", "driver.sql")},
+			},
+		},
+		{
+			name: "logger level can be mapped",
+			opts: []logutilstracelog.LoggerOpt{
+				logutilstracelog.WithRemapLevel(tracelog.LogLevelInfo, slog.LevelDebug),
+			},
+			args: args{
+				level: tracelog.LogLevelInfo,
+				msg:   "Hey, it's a test",
+				data: map[string]any{
+					"foo": "bar",
+				},
+			},
+			expected: &observer.LoggedRecord{
+				Record: slog.Record{
+					Level:   slog.LevelDebug,
+					Message: "Hey, it's a test",
+				},
+				Attrs: []slog.Attr{slog.String("foo", "bar")},
 			},
 		},
 	}
@@ -191,13 +239,21 @@ func TestLogger_Log(t *testing.T) {
 			if entry.Record.Message != tt.expected.Record.Message {
 				t.Errorf("Expected message %s, got %s", tt.expected.Record.Message, entry.Record.Message)
 			}
-			attrs := entry.AttrsMap()
-			if len(attrs) != len(tt.expected.Attrs) {
-				t.Errorf("Expected %d attrs, got %d: %v", len(tt.expected.Attrs), len(attrs), attrs)
+
+			if len(entry.Attrs) != len(tt.expected.Attrs) {
+				t.Errorf("Expected %d attrs, got %d: %v", len(tt.expected.Attrs), len(entry.Attrs), entry.AttrsMap())
+				return
 			}
-			for k, v := range tt.expected.AttrsMap() {
-				if attrs[k] != v {
-					t.Errorf("Expected field %s to be %s, got %s", k, v, attrs[k])
+
+			for i, attr := range tt.expected.Attrs {
+				if entry.Attrs[i].Key != attr.Key {
+					t.Errorf("Expected key %s at position %d, got %s", attr.Key, i, entry.Attrs[i].Key)
+					continue
+				}
+
+				if !reflect.DeepEqual(entry.Attrs[i].Value.Any(), attr.Value.Any()) {
+					t.Errorf("Expected value %v for key %s, got %v", attr.Value.Any(), attr.Key, entry.Attrs[i].Value.Any())
+					continue
 				}
 			}
 		})
