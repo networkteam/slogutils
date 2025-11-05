@@ -13,9 +13,10 @@ import (
 
 // Logger is an adapter for pgx tracelog to slog
 type Logger struct {
-	logger       *slog.Logger
-	ignoreErrors func(err error) bool
-	levelsMap    map[tracelog.LogLevel]slog.Level
+	logger           *slog.Logger
+	ignoreErrors     func(err error) bool
+	levelsMap        map[tracelog.LogLevel]slog.Level
+	errorLevelMapper func(tracelog.LogLevel, error) slog.Level
 }
 
 // NewLogger builds a new logger instance given a slog.Logger instance
@@ -30,6 +31,15 @@ func NewLogger(logger *slog.Logger, opts ...LoggerOpt) *Logger {
 // Log a pgx log message to the underlying log instance, implements tracelog.Logger
 func (l *Logger) Log(ctx context.Context, level tracelog.LogLevel, msg string, data map[string]interface{}) {
 	lvl, levelOK := l.toLevel(level)
+
+	// Remap level based on error if mapper is set
+	if l.errorLevelMapper != nil && data["err"] != nil {
+		if err, ok := data["err"].(error); ok {
+			lvl = l.errorLevelMapper(level, err)
+			levelOK = true // Reset levelOK since mapper provided a valid level
+		}
+	}
+
 	if !l.logger.Enabled(ctx, lvl) {
 		return
 	}
@@ -109,5 +119,12 @@ func WithRemapLevel(in tracelog.LogLevel, out slog.Level) LoggerOpt {
 			l.levelsMap = make(map[tracelog.LogLevel]slog.Level)
 		}
 		l.levelsMap[in] = out
+	}
+}
+
+// WithRemapErrorLevel sets a mapper function to conditionally remap log levels based on error inspection
+func WithRemapErrorLevel(mapper func(tracelog.LogLevel, error) slog.Level) LoggerOpt {
+	return func(l *Logger) {
+		l.errorLevelMapper = mapper
 	}
 }

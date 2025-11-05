@@ -202,6 +202,115 @@ func TestLogger_Log(t *testing.T) {
 				Attrs: []slog.Attr{slog.String("foo", "bar")},
 			},
 		},
+		{
+			name: "error level can be remapped based on error inspection",
+			opts: []logutilstracelog.LoggerOpt{
+				logutilstracelog.WithRemapErrorLevel(func(level tracelog.LogLevel, err error) slog.Level {
+					if err.Error() == "test error" {
+						return slogutils.LevelTrace
+					}
+					return slog.LevelError
+				}),
+			},
+			args: args{
+				level: tracelog.LogLevelError,
+				msg:   "Error occurred",
+				data: map[string]any{
+					"err": testErr,
+					"sql": "SELECT * FROM users",
+				},
+			},
+			expected: &observer.LoggedRecord{
+				Record: slog.Record{
+					Level:   slogutils.LevelTrace,
+					Message: "Error occurred",
+				},
+				Attrs: []slog.Attr{
+					slog.Any("err", testErr),
+					slog.String("sql", "SELECT * FROM users"),
+				},
+			},
+		},
+		{
+			name: "error level mapper not called when no error present",
+			opts: []logutilstracelog.LoggerOpt{
+				logutilstracelog.WithRemapErrorLevel(func(level tracelog.LogLevel, err error) slog.Level {
+					// This should never be called
+					return slogutils.LevelTrace
+				}),
+			},
+			args: args{
+				level: tracelog.LogLevelError,
+				msg:   "No error here",
+				data: map[string]any{
+					"sql": "SELECT * FROM users",
+				},
+			},
+			expected: &observer.LoggedRecord{
+				Record: slog.Record{
+					Level:   slog.LevelError,
+					Message: "No error here",
+				},
+				Attrs: []slog.Attr{
+					slog.String("sql", "SELECT * FROM users"),
+				},
+			},
+		},
+		{
+			name: "error level mapper takes precedence over WithRemapLevel",
+			opts: []logutilstracelog.LoggerOpt{
+				logutilstracelog.WithRemapLevel(tracelog.LogLevelError, slog.LevelWarn),
+				logutilstracelog.WithRemapErrorLevel(func(level tracelog.LogLevel, err error) slog.Level {
+					return slogutils.LevelTrace
+				}),
+			},
+			args: args{
+				level: tracelog.LogLevelError,
+				msg:   "Error with both mappers",
+				data: map[string]any{
+					"err": testErr,
+				},
+			},
+			expected: &observer.LoggedRecord{
+				Record: slog.Record{
+					Level:   slogutils.LevelTrace,
+					Message: "Error with both mappers",
+				},
+				Attrs: []slog.Attr{
+					slog.Any("err", testErr),
+				},
+			},
+		},
+		{
+			name: "error can be downgraded based on error inspection",
+			opts: []logutilstracelog.LoggerOpt{
+				logutilstracelog.WithRemapErrorLevel(func(level tracelog.LogLevel, err error) slog.Level {
+					// Simulate checking for constraint errors by error message
+					if err.Error() == "test error" {
+						return slogutils.LevelTrace
+					}
+					return slog.LevelError
+				}),
+			},
+			args: args{
+				level: tracelog.LogLevelError,
+				msg:   "exec error",
+				data: map[string]any{
+					"err": testErr,
+					"sql": "INSERT INTO users (email) VALUES ($1)",
+				},
+			},
+			expected: &observer.LoggedRecord{
+				Record: slog.Record{
+					Level:   slogutils.LevelTrace,
+					Message: "exec error",
+				},
+				Attrs: []slog.Attr{
+					slog.Any("err", testErr),
+					slog.String("sql", "INSERT INTO users (email) VALUES ($1)"),
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
